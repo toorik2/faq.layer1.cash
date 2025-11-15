@@ -1,0 +1,21 @@
+{
+  "name": "faq.layer1.cash",
+  "version": "1.0.0",
+  "description": "BCH FAQ Search - Fast, searchable FAQ database for Bitcoin Cash development",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "solid-js": "1.8.15",
+    "fuse.js": "^7.0.0",
+    "lucide-solid": "0.552.0"
+  },
+  "devDependencies": {
+    "typescript": "5.4.2",
+    "vite": "5.1.6",
+    "vite-plugin-solid": "2.10.2"
+  }
+}

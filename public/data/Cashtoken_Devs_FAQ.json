@@ -1,0 +1,469 @@
+{
+  "categories": [
+    {
+      "name": "CashTokens Fundamentals",
+      "faqs": [
+        {
+          "question": "What is the fundamental difference between CashTokens and SLP tokens?",
+          "answer": "CashTokens are part of the UTXO data model - they're native consensus-layer tokens embedded directly in transaction outputs. SLP tokens are an off-chain data convention that uses OP_RETURN metadata interpreted by indexers. CashTokens have native validation by all nodes, while SLP requires specialized indexers to track validity."
+        },
+        {
+          "question": "How do CashTokens solve SLP's indexing problem?",
+          "answer": "CashTokens fix the major SLP indexing problem by being consensus-validated at the UTXO level. SLP required specialized indexers to track validity across transactions, creating reliability issues. CashTokens are native to the UTXO data model with on-chain validation. However, CashTokens are currently harder to work with for developers than SLP was, as SLP had extensive tooling developed over time."
+        },
+        {
+          "question": "What is the relationship between category IDs and fungible/non-fungible tokens?",
+          "answer": "Category IDs are the parent of any combination of fungible and non-fungible tokens. A single category can contain both FTs and NFTs simultaneously. Common developer mistake: not understanding that category ID is the umbrella identifier, and different token types (FT, NFT with different commitments) can coexist under one category. The category ID comes from the genesis transaction's VOUT 0."
+        },
+        {
+          "question": "Can you have both an NFT and fungible tokens in the same UTXO?",
+          "answer": "Yes, you can have both an NFT and fungible tokens on the same UTXO as long as they share the same token category (tokenId). Each UTXO can hold exactly 1 token category, but that category can contain both NFT and FT components simultaneously. Example implementations include Popcorn and various covenant patterns."
+        },
+        {
+          "question": "What is required for CashToken genesis transactions?",
+          "answer": "Token genesis requires a VOUT 0 output. The new tokens will have tokenId equal to the TxId of that Vout0 UTXO. This creates the category ID that all tokens/NFTs in that category will share. See spec graphic at cashtokens.org/docs/spec/chip/#token-categories. The genesis transaction is the only time new token categories can be created."
+        },
+        {
+          "question": "Can CashToken genesis transactions send to multiple addresses?",
+          "answer": "Yes, CashToken genesis transactions can send newly minted tokens to multiple different addresses in a single transaction. This allows distributing the initial token supply across multiple recipients atomically during genesis."
+        },
+        {
+          "question": "What is the proposed naming convention for token atomic units on BCH?",
+          "answer": "The proposed term is 'tau' (plural 'taus'), derived from 'token-atomic-unit' which happens to be a Greek letter. For example: '100 taus of musd' equals 1.00 MUSD. The community agreed NOT to use 'sats' as the term to differentiate from Bitcoin terminology."
+        },
+        {
+          "question": "Where are CashToken supply concepts (total, circulating, reserve) officially defined?",
+          "answer": "Defined in the CashTokens CHIP at cashtokens.org/docs/spec/chip#fungible-token-supply-definitions. Total supply is all minted tokens, reserve supply is held in AuthUTXO (not circulating), circulating supply is total minus reserves. Reserves must be in the single AuthUTXO to count properly, not just any UTXO at authguard address."
+        },
+        {
+          "question": "How do BCH and CashTokens on the same UTXO prevent state bloat?",
+          "answer": "Having BCH and CashTokens on the same UTXO elegantly solves UTXO bloat - the BCH locked with the state acts as the ongoing payment/storage fee. This economic mechanism prevents spam by requiring value commitment. Converting all sats to tokens was considered but rejected because contracts need to hold both state (tokens) and value (BCH) simultaneously for this bloat-prevention mechanism."
+        },
+        {
+          "question": "Why can't BCH be converted into a CashToken to unify sats and tokens?",
+          "answer": "It's a crucially important feature for contracts to hold state (CashTokens) and BCH value simultaneously. Removing this would break the ability to create stateful contracts with native value, crippling covenant functionality. Contracts wanting to abstract BCH can already use Wrapped BCH (wrapped.cash) for token-only scenarios like token-to-token DEXes."
+        },
+        {
+          "question": "Can CashToken NFTs contain arbitrary on-chain data or must they reference external storage?",
+          "answer": "NFTs can contain up to 40 bytes of arbitrary data on-chain in the commitment field. This data is part of the UTXO and doesn't require IPFS/external storage. For larger data (metadata, images, etc.), use BCMR which references external storage. The 40-byte commitment can store small data directly (hashes, identifiers, compact state) or point to larger external data."
+        },
+        {
+          "question": "Why does Moria USD show as 'is_nft: true' when it's a fungible token?",
+          "answer": "Moria USD (MUSD) category contains both fungible tokens and NFTs. MUSD itself is the fungible token, but the category also has NFTs used internally by the loan contract to track state (positions, collateral, etc.). Indexers detecting any NFT in a category may flag 'is_nft: true' even though the primary token is fungible. One category can have both FTs and NFTs."
+        }
+      ]
+    },
+    {
+      "name": "Trading & DEX",
+      "faqs": [
+        {
+          "question": "What is the difference between PSBT trading approach and covenant-based trading?",
+          "answer": "PSBT (Partially Signed Bitcoin Transaction) trading is an off-chain offer that never gets on chain unless taken by someone. The maker creates an imbalanced transaction that the taker completes by adding inputs and outputs to balance it. Trades are essentially coinjoins. This differs from covenant approaches where the contract logic is enforced on-chain. BCH can implement PSBT-style trades using SIGHASH_SINGLE."
+        },
+        {
+          "question": "What is CatDex and how does it work?",
+          "answer": "CatDex is a Token Category Authorized Decentralized Exchange. It uses an authorization NFT category (authCat) to control trading. Makers create NFTs with commitment data encoding their offers and send them with assets to a contract address. A separate key-value index contract enables aggregation and discoverability across multiple DEX instances. Makers pay to publish their DEX as a value on the token's key, allowing anyone to query and discover available trades."
+        },
+        {
+          "question": "How does CatDex discovery work through the key-value index contract?",
+          "answer": "To make a DEX discoverable, publish it to the key-value index by sending an NFT with protocol identifier and authCat ID as commitment to contract index(bytes tokenCategory). To find all MUSD exchanges: query all UTXOs at the index address for that token category, parse for NFTs containing authCat IDs, then query contract CatDex(bytes32 authCat, bytes32 tokenId) addresses. Anti-spam: increase listing cost to reduce fake/unfunded exchanges."
+        },
+        {
+          "question": "What libraries exist for interacting with Cauldron DEX contracts programmatically?",
+          "answer": "Two independent libraries for on-chain contract interaction: vegabch (https://github.com/hosseinzoda/vegabch) and Cauldron_Swap_Test (https://github.com/mr-zwets/Cauldron_Swap_Test). These enable programmatic access to Cauldron DEX without using the website, supporting CLI/API integration for automated trading and liquidity management."
+        },
+        {
+          "question": "How do you use vegabch CLI to interact with Cauldron DEX?",
+          "answer": "Architecture: daemon/client RPC model. 1) Generate config with `daemon:gen-rpcauth`, 2) Run daemon: `vegabch daemon:run --config server-config.json`, 3) Set client config: `export VEGABCH_CONFIG=/path/to/client-config.json`, 4) Send RPC commands to daemon. Example configs at github.com/hosseinzoda/vegabch/tree/beta/share/examples. Wallet generation requires derivation_path parameter."
+        },
+        {
+          "question": "What is the vegabch CLI workflow for executing Cauldron DEX trades?",
+          "answer": "Two-step process: 1) `cauldron:construct-trade --target-demand --decimal-amounts BCH MUSD 1.00 trade.json` constructs trade showing rate/fee/supply/demand (fee is included, don't deduct), 2) `cauldron:fund-trade trade.json --broadcast` funds, builds & broadcasts. Set `VEGABCH_CONFIG=client-config.json` environment variable. Run daemon separately with daemon-config.json, send commands with client-config.json."
+        },
+        {
+          "question": "What causes txn-mempool-conflict errors when trading on Cauldron?",
+          "answer": "Two causes: 1) Someone traded before you pushed your transaction (pool state changed), 2) Broadcasting same transaction twice. Each constructed trade is only valid for building one transaction. If someone trades before you, must construct a fresh trade with updated pool state. This is inherent to on-chain AMM racing - first valid transaction wins."
+        },
+        {
+          "question": "What's the current state of order types on Cauldron DEX?",
+          "answer": "Cauldron currently only supports AMM pool trading (swap against liquidity pools). Limit orders are not yet implemented. All trades execute immediately at current pool rate. For deeper liquidity, use MUSD (MUSDv0 is retired). The construct-trade command calculates optimal routing across available pools."
+        },
+        {
+          "question": "How do you list a new token on Cauldron DEX?",
+          "answer": "Self-listing: Connect wallet and create liquidity pool for the token. Verification: Contact Cauldron team to get token verified/whitelisted. Documentation at docs.riftenlabs.com/cauldron/claim/. May be possible to list directly via script but no easy UI helper currently. Verification requires team approval for quality/scam filtering."
+        },
+        {
+          "question": "How do flash loans work on BCH with CashTokens?",
+          "answer": "Flash loans are implemented using BCH covenants and CashTokens. Implementation available at github.com/kiok46/flash-loans. Flash loans enable borrowing tokens within a single transaction with the requirement that they're returned (plus fee) before transaction completion, otherwise the transaction is invalid. Enabled by BCH's covenant capabilities allowing within-transaction state validation."
+        },
+        {
+          "question": "What cross-chain atomic swap implementations exist for BCH?",
+          "answer": "Three implementations: 1) cross-chain-swap-ves (general framework), 2) AxeSwap (BCH-XMR swaps), 3) BasicSwapDEX (BCH recently added). Challenge: Hard to get volume - atomic swaps have poor UX compared to alternatives. For better convenience and liquidity, ThorChain-like approach needed with liquidity pools rather than direct peer-to-peer atomic swaps. Current atomic swap UX is 'shitty' compared to pooled liquidity."
+        },
+        {
+          "question": "Why don't atomic swaps gain more adoption despite being trustless?",
+          "answer": "Atomic swaps have terrible UX compared to pooled liquidity solutions. They require both parties to be online simultaneously, matching exact amounts, and dealing with timelock complexities. Everything else (ThorChain, centralized exchanges) is 'way more convenient' despite trust tradeoffs. To compete, BCH would need a ThorChain-like dedicated project with liquidity pools, not just atomic swap infrastructure."
+        }
+      ]
+    },
+    {
+      "name": "Smart Contracts & Covenants",
+      "faqs": [
+        {
+          "question": "Can NFTs have built-in royalties on BCH that enforce creator fees on every resale?",
+          "answer": "Yes, BCH smart contracts can enforce royalties on NFT resales. The fee receiver can be a pay-to-NFT address, making the payout rights themselves tradeable. Use cases include concert tickets where resale is price-limited and the original creator gets a cut of every sale. The contract can restrict resale price and automatically send a percentage to the creator on each trade."
+        },
+        {
+          "question": "How does the single-UTXO auction pattern work?",
+          "answer": "Each bid pays out the previous highest bid, keeping the auction in a single UTXO until the item is sold. This makes the under-bidder whole to bid again. Can be enhanced with incentives where part of the new bid pays the previous bidder to encourage early bidding, eliminating the 'wait until last second' problem. Improves price discovery as people bid on underpriced items to collect the next bidder's fee."
+        },
+        {
+          "question": "What is the Unspent protocol and how do perpetuity/annuity contracts work?",
+          "answer": "Unspent is a PUSH-based recurring payment system where recipients are paid automatically without wallet interaction or signing. Perpetuity and annuity contracts create recurring payments already working in production. They represent ultimate commitment - transparent, on-chain, and cannot be redirected once created. You allocate a budget that flows over time. Ideal for contractor payments as it stabilizes spending and working behaviors."
+        },
+        {
+          "question": "How do unspent protocol contracts execute and terminate?",
+          "answer": "Unspent perpetuity and annuity contracts cannot be modified once created and automatically stop when the balance is depleted. They use the 'S' selector in the unspent protocol, allowing payments to be picked up and executed as anyone-can-spend MEV. The protocol enables Hodl, Subscriptions, and Wills through phi v3 timelocking and token-aware contracts."
+        },
+        {
+          "question": "What are the technical challenges of USD-denominated recurring payment contracts?",
+          "answer": "Fiat-denominated contracts require oracle data and face two key risks: if the contract extends past oracle lifetime it must be liquidated, and if BCH price increases significantly the installment becomes trivial and can't draw down principal properly. BCH-denominated perpetuity/annuity contracts avoid this by valuing BCH itself. A cancellable BCH-denominated subscription is considered an easy upgrade to existing contracts."
+        },
+        {
+          "question": "What is the recommended approach to building recurring payment dapps?",
+          "answer": "It's easier to develop many similar dapps within one protocol rather than one-offs. The key challenge is removing friction for adoption - while dapps have existed for half a decade with on-chain usage, making something that grows requires excellent UX. The vision includes wallet integration where users can subscribe to creators with customizable amounts and payment schedules."
+        },
+        {
+          "question": "How do time-locked CashToken transfers work?",
+          "answer": "Unspent V3 (currently being coded) will support time-locked transfers of both BCH and CashTokens. Important: tokens don't move automatically - the party locking the coins/tokens must publish a job that someone else can call to execute the transfer. This is timelocking with manual execution, not fully autonomous transfers."
+        },
+        {
+          "question": "How does the EIP-2535 Diamond pattern adapt to BCH smart contracts?",
+          "answer": "Similar to Ethereum's Diamond/Multi-Facet Proxy pattern, BCH contracts can use a plugin/facet architecture where auxiliary contracts provide 'code' while the main contract maintains 'storage/utxo'. This enables: pluggable systems (e.g., Lease Contract plugging into Domain system), borrowing against tokens, multi-party ownership, upgradable contract systems, and chainlink-like structures. All facets are just code providers to the core storage contract."
+        },
+        {
+          "question": "What is the BitCANN domain registration system architecture?",
+          "answer": "BitCANN is a complete decentralized domain system with auctions, expiry, transferability, record updating, and multiple TLDs. One authchain equals one TLD, with external convention determining which instance is authoritative. It's asynchronous (doesn't keep all state in one UTXO merkle tree), enforces charset validation, and uses guard contracts with incentive structures. Contract code is laid out to mirror transaction structure (preamble, inputs, outputs)."
+        },
+        {
+          "question": "What's the difference between pre-native and native introspection in BCH contracts?",
+          "answer": "Last-will and some older contracts use introspection from before 'native introspection' became available. These older designs are no longer optimal and tooling isn't cross-compatible between Spedn and CashScript. Simpler contracts like 2-of-3 multisig don't require introspection at all and make good candidates for WalletConnect apps."
+        },
+        {
+          "question": "Why can't smart contracts measure coin-days for UTXOs not held by the contract?",
+          "answer": "Contracts can only introspect their own inputs and cannot measure the age of UTXOs that weren't previously locked by the same contract. This prevents implementing rewards based on age × value for arbitrary UTXOs. The blockchain doesn't expose UTXO age/block height to script, making coin-days calculation impossible for external UTXOs without an oracle."
+        },
+        {
+          "question": "What is BCHess and how does on-chain chess work with BCH covenants?",
+          "answer": "BCHess is covenant-based chess implementation using CashTokens for game state. Older version available at github.com/SayoshiNakamario/BCHess with most basic logic. Presented at Bliss'25 - demonstrates complex game state management on-chain using covenant introspection. Updated version coming later with bug fixes and improvements."
+        }
+      ]
+    },
+    {
+      "name": "Infrastructure & Indexing",
+      "faqs": [
+        {
+          "question": "What infrastructure is needed beyond a full BCH node to build a wallet?",
+          "answer": "A full node alone is insufficient for wallet creation. You need an indexer like Fulcrum to get address balances. However, Fulcrum currently doesn't work as a Token Indexer - it's anchored around wallet addresses. For general-purpose token queries (finding all addresses containing a specific category ID), use Chaingraph instead. Fulcrum can view tokens on addresses you already know about."
+        },
+        {
+          "question": "When should you use Fulcrum vs Chaingraph for CashToken applications?",
+          "answer": "Use Fulcrum for wallet-centric applications - it's perfect for querying balances and tokens on known addresses. Use Chaingraph for token-centric applications - it enables looking up a category ID to find all addresses/UTXOs containing those tokens. Fulcrum is address-indexed, Chaingraph is token-indexed. For wallet creation with known addresses, Fulcrum works perfectly."
+        },
+        {
+          "question": "Do you need an indexer to use CashTokens with your own BCHN node?",
+          "answer": "For basic CashToken functionality with libraries like mainnet.cash-js, you can connect directly to your BCHN node without a dedicated indexer. However, for advanced queries (finding all addresses holding a token, tracking NFT locations, etc.), you'll need an indexer like Fulcrum or Chaingraph. Simple send/receive works node-only."
+        },
+        {
+          "question": "Why is BlockBook indexer important for CashToken adoption?",
+          "answer": "BlockBook is a multicoin indexer (written in Go, maintained by Trezor) used by Edge wallet, Trust wallet (Binance), and possibly Exodus. Adding CashToken support to BlockBook would enable: CashToken support in multiple major wallets, Trezor hardware wallet support, and serve as public-good infrastructure. Success depends on convincing maintainers that CashTokens are native BCH features and minimizing API changes. Could be flipstarter funded."
+        },
+        {
+          "question": "What BCMR indexers and explorers are available for CashTokens?",
+          "answer": "Public resources: 1) Paytaca indexer (bcmr.paytaca.com) - indexes chain-resolved BCMR registries, 2) TokenExplorer.cash - on-chain resolution metadata lookup, 3) BlockBook explorer (blockbook.pat.mn/token/[categoryId]) - added to Cashonize, 4) Static registries: otr.cash (outdated, missing MUSD), badgers.cash, futurebitcoin.cash. Opportunity exists for better partitioned-per-category static registry (OpenTokenRegistry issue #9)."
+        },
+        {
+          "question": "What is the OP_RETURN scanner utility and how does it work?",
+          "answer": "The OP_RETURN scanner is a tool that finds all occurrences of specific OP_RETURN markers on-chain by scanning for protocol identifiers like 'BCMR' or LOKAD IDs. For example, searching for 'BCMR' returns 3417 transaction IDs. It's useful for discovering all instances of a particular protocol or smart contract app, as markers are a recommended place to store contract details."
+        },
+        {
+          "question": "How can you scale mainnet-js when using your own Fulcrum indexer?",
+          "answer": "mainnet-js requires websocket connections directly to Fulcrum, unlike bch-js which uses REST (enabling AWS queue routing). Solution: use fulcrum-http (github.com/mainnet-pat/fulcrum-http) - provides HTTP wrapper for Fulcrum, enabling load balancing and queue-based scaling architectures similar to bch-js REST approach."
+        }
+      ]
+    },
+    {
+      "name": "Wallet Development",
+      "faqs": [
+        {
+          "question": "How can a wallet hold only CashTokens with zero BCH for fees?",
+          "answer": "Three approaches: 1) Post Office pattern - centralized service adds fee input in exchange for tokens, 2) Cauldron pool swap - craft transaction that swaps tokens for just enough BCH to cover fee, then makes payment, 3) Combined tx - single transaction that performs Cauldron swap (picking up only txfee from pool) while splitting CashToken into payment output and change output. All avoid requiring BCH in the wallet."
+        },
+        {
+          "question": "How feasible is building a token-only wallet that pays fees via Cauldron swaps?",
+          "answer": "Very feasible - estimated one day of work. Create a wallet that exposes a single token (e.g., MUSD) and transparently pays transaction fees through Cauldron pool swaps. Can be implemented as an SDK that other platforms can use. The transaction combines a Cauldron swap (picking up just enough BCH for txfee from pool) with splitting the CashToken into payment output and change output."
+        },
+        {
+          "question": "What is the recommended fee management strategy for token-only wallets?",
+          "answer": "Wallets should maintain a fee stash of approximately 10 UTXOs of 800 sats each, managed behind-the-scenes. When user sends tokens, wallet automatically extends the transaction to swap tokens for a new 800sat output via DEX. Critically, make the DEX swap a 0-conf child rather than parent to avoid DSP (Double Spend Proof) coverage issues. Automatically replenish the BCH stash when depleted, so users don't manually manage the BCH pot."
+        },
+        {
+          "question": "What are the privacy implications of fee management strategies for CashToken wallets?",
+          "answer": "Reusable separate BCH UTXOs for fees destroy privacy through address reuse and linkability. Three privacy-preserving alternatives: 1) Single-use fee UTXOs (new UTXO each time), 2) Preload CashToken UTXOs with sats for spending during CashFusion process, 3) Just-in-time swap trick (DEX swap as 0-conf child). Also: mobile wallet push notifications travel through Google, exposing all deposits/payments - should default to disabled."
+        },
+        {
+          "question": "What are the main development tooling options for CashTokens across different languages?",
+          "answer": "JavaScript developers use mainnet-js and CashScript (or libauth directly for lower-level operations). Python developers can use bitcash library. For CashScript, this includes contract compilation, transaction building, and WalletConnect integration. Libauth provides the foundational primitives that other libraries build on."
+        },
+        {
+          "question": "How do you enable CashToken support in Electron Cash?",
+          "answer": "Use Electron Cash (regular), not Electron Cash SLP (which is for SLP tokens only). Enable CashTokens tab via View menu - it's hidden by default. Better wallets exist for CashTokens (Selene, Cashonize, Paytaca) but they don't necessarily support testnets. For testnet work, Electron Cash is reliable option once tabs enabled."
+        },
+        {
+          "question": "Which wallets support WalletConnect on mobile devices?",
+          "answer": "Paytaca and Cashonize support WalletConnect on mobile. For same-device connections, press QR code icon below close button to copy/paste WalletConnect info. Electron Cash doesn't have native WalletConnect functionality - the plugin is desktop-only. This limits Electron Cash's ability to interact with WalletConnect-based dapps on mobile."
+        },
+        {
+          "question": "What are the security concerns with WalletConnect integration in BCH dapps?",
+          "answer": "WalletConnect is just a transport layer for communication between dapp and wallet. Primary security concern is adding a middleman that can censor or know IP info - not cryptographic vulnerabilities. CashScript v0.11.1 added native WalletConnect support via TransactionBuilder method that generates WC transaction objects for signing. Overall security risk is minimal beyond typical relay/transport concerns."
+        },
+        {
+          "question": "What breaking changes occurred in WalletConnect v2.21.0 affecting BCH wallets?",
+          "answer": "@walletconnect/utils@2.21.0 deprecated `requiredNamespaces` - values are now automatically assigned to `optionalNamespaces` instead. This breaks BCH wallet implementations using requiredNamespaces. Warning: Don't upgrade @reown/walletkit or @walletconnect/core without testing. Fix: Use optionalNamespaces or pin to older versions (see bch-hodl-dapp package.json). Cashonize fix: github.com/cashonize/cashonize-wallet/commit/696daa49."
+        }
+      ]
+    },
+    {
+      "name": "BCMR & Metadata",
+      "faqs": [
+        {
+          "question": "What is a BCMR authchain and why does 'Invalid authchain transaction' error occur?",
+          "answer": "An authchain is a series of spends from a vout 0 UTXO, forming a zeroth descendant transaction chain. The error 'does not spend 0th output of previous transaction' occurs when providing a transaction without a vout 0 UTXO. To fetch BCMR metadata, use the token's categoryId as argument, NOT the transfer transaction ID. Each link in the authchain must spend output 0 from the previous transaction."
+        },
+        {
+          "question": "How are CashToken decimal places determined and what happens without BCMR data?",
+          "answer": "Decimals are NOT on-chain - they're determined by the 'decimal' field in BCMR (Bitcoin Cash Metadata Registry), an off-chain registry. Without BCMR data, wallets and explorers display raw integer amounts and category ID only. Example: 1000 tokens with 2 decimals shows as 100000 in BCMR-unaware wallets. This differs from ERC-20 where decimals are on-chain (Ethereum uses 18 decimals by design). Electron Cash supports BCMR lookup, with easier/automatic lookup coming."
+        },
+        {
+          "question": "Can token decimals cause confusion when sending CashTokens between different wallets?",
+          "answer": "Yes - if sender uses BCMR-aware wallet (like CashTokens Studio) and receiver uses BCMR-unaware wallet (older Electron Cash), decimal display differs dramatically. Sender sees 1000 tokens (with 2 decimals), receiver sees 100000 (raw amount). This can enable disputes where sender claims they sent more than received. Base-layer always shows ID and raw value correctly - only decimal presentation differs based on BCMR access."
+        },
+        {
+          "question": "Can BCMR authchain owners manipulate token decimals to scam users?",
+          "answer": "Yes - token authors have extensive power by design. Attacker with Auth access could change 500.00 to 50000 by removing 2 decimals. Protections: 1) Verified token lists (Cauldron integration) would delist scamming tokens, 2) Only trust issuers with strong reputations who would destroy themselves scamming, 3) Consider DAO governance for decentralized verified tokens. This area needs investigation and coordination - Selene doesn't adequately show verified/unverified status."
+        },
+        {
+          "question": "Why do CashToken authors have the power to update logos and metadata?",
+          "answer": "Updatable metadata is necessary for legitimate use cases: improving image quality, rebranding, or annual events like BLISS conference. Token authors have extensive control by design - this is intentional, not a bug. The solution is social: only trust tokens from issuers with strong reputations who would face severe consequences from abuse. Immutable metadata would prevent legitimate updates."
+        },
+        {
+          "question": "What are the available public BCMR registries?",
+          "answer": "Public registries: otr.cash, badgers.cash, futurebitcoin.cash, and wrapped.cash (location uncertain). Paytaca operates a public indexer that indexes chain-resolved BCMR registries. No comprehensive registry exists that captures all tokens - many appear to be private/project-specific. Chain resolution via DNS and app-embedded metadata provide alternatives to centralized registries."
+        },
+        {
+          "question": "Why do some wallets not display SVG icons from BCMR metadata?",
+          "answer": "Inconsistent SVG support across wallets despite BCMR spec recommending 'data:image/svg+xml,' URI format. Electron Cash and Selene don't load SVG icons, while Cashonize and salemkode explorer do. Implementation-dependent - wallets must explicitly add SVG rendering support. Test compatibility with BPT tokens on tapswap."
+        },
+        {
+          "question": "Can IPFS URLs be used for BCMR metadata, or must it be HTTPS?",
+          "answer": "HTTPS requirement is Electron Cash-specific ('only EC thing'), not a spec-wide mandate. Other wallets and tools may support IPFS or other URI schemes. The BCMR spec itself is flexible, but wallet implementation determines what protocols work. Check specific wallet/tool documentation for supported URI schemes."
+        },
+        {
+          "question": "Can BCMR icons be embedded directly in the URI instead of using IPFS?",
+          "answer": "Yes - BCMR supports 'data:image/svg+xml,' URIs for embedding SVG icons directly in metadata without IPFS. Example: BPTS token has SVG embedded in BCMR URI, eliminating external dependency. This improves reliability (no IPFS gateway failures) but increases BCMR file size. Trade-off between decentralization/persistence (IPFS) vs. inline embedding."
+        },
+        {
+          "question": "What is the 'set it and forget it' metadata scheme for CashTokens?",
+          "answer": "Proposed approach for permanent metadata storage without constant IPFS pinning requirements. Instead of IPFS (requires ongoing pinning), use permanent storage solutions where data is uploaded once and persists indefinitely. Reduces operational hassle for NFT/token projects. Alternative to traditional IPFS: Arweave, data URIs, or other permanent storage. Makes token metadata maintenance-free."
+        }
+      ]
+    },
+    {
+      "name": "Network & Testing",
+      "faqs": [
+        {
+          "question": "Why can't you just swap address prefixes between mainnet and testnet?",
+          "answer": "The prefix is included in the address checksum, so you cannot simply replace 'bitcoincash:' with 'bchtest:' - the checksum will be invalid. While lockscripts are identical across networks, addresses differ due to checksum recalculation. Use tools like stack.xo.cash/tools/primitives.html#address to properly translate addresses between networks (mainnet, testnet, chipnet)."
+        },
+        {
+          "question": "How do you convert a regular BCH address to a CashToken-capable address?",
+          "answer": "Use kth.cash/wasm.html tool to convert regular BCH addresses to CashToken receive addresses. Token addresses indicate support for tokens - ideally all addresses become token addresses eventually. Addresses encode support via checksum/format but underlying lockscript is identical. Tool enables sending tokens to legacy address format by converting to token-aware equivalent."
+        },
+        {
+          "question": "How do you enable testnet4 or chipnet on different BCH wallets?",
+          "answer": "Electron Cash: Start with `--chipnet` or `--testnet4` command-line flags. Selene: Tap the logo 6 times rapidly on the credits screen (settings → green version button) to access debug menu, then select testnet4. Paytaca and Cashonize both support chipnet. For development, CashScript Playground defaults to mocknet which is recommended over mainnet testing."
+        },
+        {
+          "question": "What are the methods for broadcasting raw BCH transactions without a public RPC node?",
+          "answer": "Four methods: 1) Connect directly to BCH P2P network (language-dependent, Bash scripts possible with known node IP), 2) Use Electrum protocol's blockchain.transaction.broadcast method via electrum-cash NPM library, 3) Use Electron-Cash GUI (Tools > Load transaction > From text), 4) Write custom P2P network script. No widely available public RPC nodes exist for sendrawtransaction."
+        },
+        {
+          "question": "How can you look up a P2SH (Pay-to-Script-Hash) address on BCH block explorers?",
+          "answer": "Use this bash script to generate a 3xpl/blockchair URL for any P2S address: `hex=0xAC; echo \"https://3xpl.com/bitcoin-cash/address/script-\"$(echo -n $hex | sed -s 's/^0x//' | tr 'A-F' 'a-f' | sha256sum | cut -b 1-32)`. Replace 0xAC with your script hex. This hashes the script and formats it for block explorer lookups."
+        }
+      ]
+    },
+    {
+      "name": "CashScript & Development Tools",
+      "faqs": [
+        {
+          "question": "What CashScript optimization anti-patterns should be avoided?",
+          "answer": "Two key anti-patterns: 1) Never use 'else require(false)' - it wastes 9 bytes and adds unnecessary operations. Instead, put the require condition in the else block directly: 'else { require(condition, \"error\") }'. 2) Avoid deeply nested if statements - they increase bytecode size and complexity. Use early returns or flatter logic structures instead."
+        },
+        {
+          "question": "What does 'stack item exceeded maximum length (520 bytes)' error mean in CashScript?",
+          "answer": "This error occurs when a program attempts to push a stack item larger than 520 bytes (BCH's MAX_SCRIPT_ELEMENT_SIZE limit) even if total script size and opcount are within limits. This was reported as a potential compiler issue in CashScript v0.10.0 - reverting to v0.8.0 resolved it. Individual stack elements have stricter size limits than the overall script."
+        },
+        {
+          "question": "What is the CashScript v0.10.0 simple transaction builder bug and how to fix it?",
+          "answer": "CashScript v0.10.0 has a bug in the debugging tooling for the simple transaction builder causing 'stack item exceeded maximum length' errors even when script size and opcount are within limits. Workaround: Use v0.9.0 or v0.8.0. The issue will be fixed in v0.11, where the old simple transaction builder will be marked deprecated. The bug affects the SDK when running contract functions."
+        },
+        {
+          "question": "What are the key features of CashScript v0.11.0?",
+          "answer": "Major release after 6+ months development. Highlight: debugging capabilities for new transaction builder, enabling local testing/debugging with mocknet and Bitauth IDE integration. Contains breaking changes with migration notes provided. Significantly improves developer experience. Allows transaction builder to be used for development testing rather than just production. Presented in Rosco's Bliss talk."
+        },
+        {
+          "question": "What new BCH development guides were added to CashScript documentation?",
+          "answer": "Two fundamental guides added: 1) 'Transaction Lifecycle' (cashscript.org/docs/guides/lifecycle) - explains transaction progression through network, 2) 'Adversarial Analysis' (cashscript.org/docs/guides/adversarial) - security analysis framework. Both are general BCH development knowledge that was assumed but never documented before, making them essential reading for all BCH developers regardless of CashScript usage."
+        }
+      ]
+    },
+    {
+      "name": "Cross-chain & Bridges",
+      "faqs": [
+        {
+          "question": "Can BCH smart contracts trigger based on BTC blockchain events?",
+          "answer": "No, BCH blockchain cannot natively monitor BTC transactions or addresses - chains cannot see each other without external data. This is the trustless two-way bridge problem, 'one of the biggest unsolved problems in crypto.' The only solution is using an oracle service that reports BTC chain events to the BCH contract, introducing trust assumptions."
+        },
+        {
+          "question": "Why can't proof-of-work verification solve trustless cross-chain bridges?",
+          "answer": "While similar to drivechains/ThorChain concepts, PoW verification faces critical problems: handling reorgs and calculating the highest PoW chain when adversaries feed the contract data from minority hashrate branches. The technical complexity of on-chain SPV light client verification, combined with potential for dishonest oracle data, makes two-way peg SPV a 'graveyard idea' - heavily discussed but never successfully implemented."
+        },
+        {
+          "question": "What are the practical approaches to wrapped BTC on BCH?",
+          "answer": "Three approaches: 1) Tokenized BTC via CashTokens backed by custodial service (centralized trust, could use proof-of-reserves), 2) BCH Bull's battle-tested oracle service for BTC-pegged financial products (cash-settled instruments, not redeemable tokens), 3) WBTC CashToken bridge (possible today). All require trust assumptions - depositing BTC for truly trustless wrapped-BTC is impossible without BTC covenant support (unlikely). Usually solved with multisig custody."
+        },
+        {
+          "question": "What is the difference between cash-settled instruments and redeemable wrapped tokens?",
+          "answer": "Cash-settled instruments (like BCH Bull products) track BTC price via oracle and settle in BCH - you never get actual BTC. Redeemable wrapped tokens (like traditional WBTC) represent claims on real BTC held in custody that can be redeemed 1:1. These are entirely different animals - one is a derivative, the other is tokenized custody."
+        },
+        {
+          "question": "What CashToken integrations are being pursued with ThorChain?",
+          "answer": "Active collaboration to add MUSD, PUSD, and potentially other CashTokens to ThorChain for cross-chain trading. This would enable BCH CashTokens to be swapped with assets from other chains (BTC, ETH, etc.) through ThorChain's liquidity pools. Contact has been established between BCH CashToken developers and ThorChain team."
+        }
+      ]
+    },
+    {
+      "name": "Exchange & Integration",
+      "faqs": [
+        {
+          "question": "What is the main barrier to CEX (centralized exchange) CashToken adoption?",
+          "answer": "Almost all exchanges use node software directly to support token ecosystems. The BCH ecosystem 'botched it' by not implementing 100% token-aware support (receive/send CashTokens) in full node software from the start. After 5 years, no CEX has implemented CashTokens because they need complete native node support to easily integrate token trading, just like they do for other chains' token standards."
+        },
+        {
+          "question": "What happens if a pre-CashTokens wallet tries to spend a CashToken UTXO?",
+          "answer": "Pre-CashTokens wallets cannot spend CashToken inputs - signing for CashTokens inputs is designed to prevent this, protecting against accidental burns. However, if a CashToken-aware wallet spends a token UTXO without including tokens in outputs, the transaction is valid and tokens are implicitly destroyed (burned). Quote from spec: 'Tokens can be implicitly destroyed by omission from a transaction's outputs.'"
+        },
+        {
+          "question": "What happens when a non-CashToken-aware wallet receives a CashToken deposit?",
+          "answer": "Token-unaware wallets won't recognize UTXOs containing tokens - they don't know how to spend them. If exchange attempts consolidation including CashToken UTXO, transaction will fail due to signature generation error. The token_prefix must be included in sighash preimage construction. Solutions: 1) Mark CashToken deposits as 'failed' to exclude from UTXO selector, 2) Update sighash preimage to properly handle token_prefix (decode from UTXO data)."
+        },
+        {
+          "question": "What's the technical requirement for signing CashToken inputs in custom BCH implementations?",
+          "answer": "Sighash preimage construction must include token_prefix field (not hardcode as empty b''). Preimage structure: version + hashPrevouts + hashSequence + txid + txindex + token_prefix + scriptCode_len + scriptCode + amount + SEQUENCE + hashOutputs + lock_time + hash_type. Pre-CashTokens signing code fails because token_prefix is missing/empty. Must decode token prefix from UTXO and include in preimage."
+        },
+        {
+          "question": "Can bch-js or mainnet-js accidentally burn CashTokens?",
+          "answer": "bch-js cannot accidentally burn CashTokens - it doesn't know how to sign token input transactions. Without explicit support for token signing in sighash preimage construction, accidental burning is impossible. However, mainnet-js could accidentally burn SLP tokens if you use both. Pre-CashTokens wallets cannot spend CashToken inputs due to signature mechanism protection."
+        },
+        {
+          "question": "What is the recommended exchange policy for handling unsupported CashToken deposits?",
+          "answer": "No clear consensus policy exists yet. Challenge: even if exchange supports X tokens, users can deposit unsupported ones. Options: 1) Treat as simple BCH deposit (risks accidentally burning tokens), 2) Quarantine UTXOs containing unsupported tokens (prevents burns, requires extra infrastructure). Most exchanges haven't implemented CashTokens yet, so best practices still emerging."
+        },
+        {
+          "question": "How should exchanges handle CashToken deposits to non-token-aware systems?",
+          "answer": "Recommended approach: 1) Policy - Quarantine CashToken UTXOs to retain manual recovery option if user covers fees, 2) Implementation - Override block parser to construct pruned block containing only BCH txs for parent class processing, 3) Create token vouts in database with FAILED status, 4) Exclude FAILED status from UTXO selection queries. This prevents spend failures while preserving recovery capability."
+        }
+      ]
+    },
+    {
+      "name": "Applications & Use Cases",
+      "faqs": [
+        {
+          "question": "How can BCH dapps avoid needing an application server?",
+          "answer": "By putting contract details on-chain, dapps can be client-only with no backend server required. The BCH Hodl Dapp demonstrates this pattern - it's a fully functional smart contract application that runs entirely in the browser. The goal is to create a 'BCH Dapp Template' enabling developers to launch simple smart contract apps within 24 hours using this serverless architecture."
+        },
+        {
+          "question": "What WalletConnect applications are desired for BCH CashToken development?",
+          "answer": "Desired WalletConnect apps include: vault app for secure storage, last-will inheritance app for estate planning, Mecenas recurring payments app for subscriptions, 'Hodl' time-locked savings app, AnyHedge app for hedging, and airdrop/dividends app for token distribution. These would enable covenant-based financial primitives through user-friendly interfaces."
+        },
+        {
+          "question": "How would a diversified CashToken index fund work on BCH?",
+          "answer": "A FUND token could monitor completed tokens from BCH Pump and reset allocation each time a new Nth token completes, distributing 1/N to each completed token. Starting with the 2nd completed token (1/2 each), then adjusting to 1/3 when the 3rd completes, etc. Key challenges include programmability, custody of decision-making, determining initial group composition, and managing dynamic rebalancing intervals."
+        },
+        {
+          "question": "What is the Vox platform architecture?",
+          "answer": "Vox is a basket of CashToken-enabled contract apps with a distributed database connecting them, where the database itself is a CashToken contract. The architecture uses contracts with references to other contracts, creating an interconnected system that unifies multiple applications in one UI. This demonstrates contracts-as-database infrastructure on BCH."
+        },
+        {
+          "question": "How does Vox's on-chain chat pricing and censorship resistance work?",
+          "answer": "Anyone can post for 250 sats/character. Anyone can 'censor' (remove) any message for 2500 sats/character (10x cost). Authors can edit their messages for 1 sat/byte. Messages are deleted after ~1 week - NFT commitments are burned from active UTXO set, preserved in full node history but removed from pruned nodes. Identities link to address that issued identity token, enabling cross-device profiles."
+        },
+        {
+          "question": "How does CashStarter use CashTokens for crowdfunding?",
+          "answer": "CashStarter (circa 2023) is open source crowdfunding platform using CashTokens to track donations on-chain. Similar to Flipstarter but uses CashToken NFTs/FTs for donor tracking and campaign management. Code available at github.com/SayoshiNakamario/CashStarter/blob/main/CashStarter.cash. Demonstrates using tokens as accounting mechanism for complex multi-party applications."
+        },
+        {
+          "question": "What are the existing gamified BCH faucet implementations?",
+          "answer": "Three implementations: 1) bugs.cash (potential open source code for reference), 2) afifthofgaming.com (gamified faucet), 3) purelypeer.cash (geolocated cashdrops - users go on quests/campaigns to find BCH at physical locations). Primary challenge is marketing rather than technical implementation. These demonstrate BCH faucets with game mechanics for user engagement."
+        },
+        {
+          "question": "What would a Double Spend Proof (DSP) checker website do?",
+          "answer": "A DSP checker would take a transaction ID and show its status, plus display a history of recent double-spend attempts and their generated DSPs. The goal is to make double-spend proofs visible and accessible, as currently they're hidden technology at the node layer with no easy way to 'see' them."
+        },
+        {
+          "question": "What are the limitations of Double Spend Proofs (DSP) for P2SH transactions?",
+          "answer": "DSP won't catch a double-spend with P2SH ancestors. P2SH ancestor means DSP score of 0 (NOT COVERED). Spec requires transactions be all P2PKH, or all mempool ancestors must be all-P2PKH, signed SIGHASH_ALL without ANYONECANPAY. This creates problems for payments using DEX swaps to convert tokens to BCH for fees on-the-fly - if 0-conf ancestor is Cauldron pool, child could get dropped when parent drops. Not all 0-conf is equal."
+        }
+      ]
+    },
+    {
+      "name": "Token Management",
+      "faqs": [
+        {
+          "question": "What is the difference between reserve supply and burned tokens, and how do you manage them?",
+          "answer": "Reserve supply is held in the AuthUTXO (not just 'original minter address' - no such concept in BCMR spec). Only AuthUTXO can update metadata and hold reserved supply. To move tokens to reserve: send to AuthUTXO. Burning is different: transaction has tokens as input and none as output - 'missing' tokens are permanently deleted. Use tokenburner.cash or CashTokens.Studio AuthGuard Contract Address."
+        },
+        {
+          "question": "How do you properly return tokens to reserve supply versus just burning them?",
+          "answer": "Reserve supply must be in the single AuthUTXO, not just any UTXO at the authguard address. To return to reserve: spend AuthUTXO together with circulating tokens, consolidate output back to single AuthUTXO. Just sending tokens to authguard creates multiple UTXOs that pollute it - not true reserve. Difficult if tokens owned by different wallets. For permanent removal, burn instead (CashTokens Studio now sends burns to tokenburner.cash)."
+        },
+        {
+          "question": "What tools exist for batch managing unwanted CashTokens?",
+          "answer": "Requested feature ('shitcoin autodumper'): tool to list FTs with checkboxes, prepare Cauldron transactions for selected tokens, show total value summary. Currently on Selene wallet todo list. For tokens without Cauldron liquidity pools, use dropship.cash to send/airdrop them. No complete solution exists yet - manual cleanup via individual Cauldron trades or burning required."
+        },
+        {
+          "question": "How do you send payments to specific NFT holders?",
+          "answer": "To send BCH to an address holding a specific NFT: you need to find which address currently holds that NFT (by querying blockchain for the NFT's UTXO), then send BCH to that address. NFTs don't have individual tokenIds - they share the category's tokenId but have unique commitments. Can add receiving address in NFT metadata, or query explorer/indexer to find current holder's address."
+        },
+        {
+          "question": "What are the approaches for paying to specific NFT holders?",
+          "answer": "Three approaches: 1) Backend service that scans/tracks UTXO set to find current NFT holder address, 2) Adding receiver address in NFT metadata (requires trust - creator can change it, must update on every transfer), 3) Contract redeemable only when specific NFT included in transaction (verification challenging - need indexer/BCMR check + redeem script verification). P2NFT CHIP discussed for future improvements. Cannot burn metadata modification rights for individual NFTs."
+        }
+      ]
+    },
+    {
+      "name": "Standards & Protocols",
+      "faqs": [
+        {
+          "question": "What are the BIP21 query parameters for requesting CashTokens in payment URIs?",
+          "answer": "Standard: bitcoincashresearch.org/t/bip21-query-parameters-for-cashtokens/1015. Parameters: &c=<categoryId_hex> for token category, &ft=<amount> for fungible token amount (Paytaca uses &f=). Example: bitcoincash:address?c=e38d7f8e85da78943b3d7766e94c5560522ad67758402ae8f31765412b746292&f=3000000. Different wallets use 'ft', 'f', or 't' parameters. Request 100.00 MUSD: &c=<hex>&ft=10000."
+        },
+        {
+          "question": "What's the current state of BIP21 URI support for CashTokens?",
+          "answer": "PayPro proposal exists (github.com/bitjson/chip-paypro) but not implemented anywhere. Key challenges: backwards compatibility ('s' param breaks old wallets, adding 'amount' violates spec), risk of wallets ignoring token params (c, f) and sending BCH-only. Potential solution: 'bch:' prefix for PayPro instead of 'bitcoincash:' to prevent accidental partial sends. Token addresses don't require tokens - can send BCH-only to them."
+        }
+      ]
+    }
+  ]
+}
