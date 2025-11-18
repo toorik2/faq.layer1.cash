@@ -40,9 +40,9 @@ body {
 }
 
 .header-nav {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  position: fixed;
+  top: 0.25rem;
+  right: 0.25rem;
   display: flex;
   gap: 1.5rem;
   z-index: 100;
@@ -392,8 +392,8 @@ h1 {
   }
 
   .header-nav {
-    top: 0.5rem;
-    right: 0.5rem;
+    top: 0.25rem;
+    right: 0.25rem;
     gap: 1rem;
   }
 
