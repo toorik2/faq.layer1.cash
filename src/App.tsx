@@ -278,13 +278,13 @@ export default function App() {
 
   return (
     <>
-      <nav class="header-nav">
-        <a href="https://faq.layer1.cash" class="nav-link active">FAQ</a>
-        <a href="https://arena.layer1.cash" class="nav-link">Arena</a>
-        <a href="https://jump.layer1.cash" class="nav-link">Jump</a>
-      </nav>
       <header>
         <div class="container">
+          <nav class="header-nav">
+            <a href="https://faq.layer1.cash" class="nav-link active">FAQ</a>
+            <a href="https://arena.layer1.cash" class="nav-link">Arena</a>
+            <a href="https://jump.layer1.cash" class="nav-link">Jump</a>
+          </nav>
           <h1>Bitcoin Cash Technical FAQ</h1>
 
           <div class="search-bar">
