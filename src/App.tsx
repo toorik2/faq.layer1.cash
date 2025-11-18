@@ -269,10 +269,22 @@ export default function App() {
     return `Search all questions... [Current total of ${totalFaqs()}]`;
   };
 
+  // Replace hardcoded numbers in intro FAQ answer with actual values
+  const formatAnswer = (answer: string) => {
+    return answer
+      .replace(/643\+? questions/gi, `${totalFaqs()} questions`)
+      .replace(/54 categories/gi, `${totalCategories()} categories`);
+  };
+
   return (
     <>
       <header>
         <div class="container">
+          <nav class="header-nav">
+            <a href="https://faq.layer1.cash" class="nav-link active">FAQ</a>
+            <a href="https://arena.layer1.cash" class="nav-link">Arena</a>
+            <a href="https://jump.layer1.cash" class="nav-link">Jump</a>
+          </nav>
           <h1>Bitcoin Cash Technical FAQ</h1>
 
           <div class="search-bar">
@@ -372,7 +384,7 @@ export default function App() {
                     <ChevronDown class="faq-icon" size={20} />
                   </button>
                   <div class="faq-answer">
-                    <div class="faq-answer-content">{faq.answer}</div>
+                    <div class="faq-answer-content">{formatAnswer(faq.answer)}</div>
                     <div class="faq-meta">
                       <span class="faq-category-tag">{faq.categoryName}</span>
                     </div>
